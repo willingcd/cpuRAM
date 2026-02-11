@@ -877,6 +877,18 @@ class EngineCoreProc(EngineCore):
             if parallel_config.data_parallel_size > 1 or dp_rank > 0:
                 set_process_title("EngineCore", f"DP{dp_rank}")
                 decorate_logs()
+                try:
+                    from vllm.utils.ram_memory_tracker import (
+                        set_ram_memory_tracking_context,
+                    )
+
+                    set_ram_memory_tracking_context(
+                        role="enginecore",
+                        dp_rank=dp_rank,
+                        local_dp_rank=local_dp_rank,
+                    )
+                except Exception:
+                    pass
                 # Set data parallel rank for this engine process.
                 parallel_config.data_parallel_rank = dp_rank
                 parallel_config.data_parallel_rank_local = local_dp_rank
@@ -884,6 +896,14 @@ class EngineCoreProc(EngineCore):
             else:
                 set_process_title("EngineCore")
                 decorate_logs()
+                try:
+                    from vllm.utils.ram_memory_tracker import (
+                        set_ram_memory_tracking_context,
+                    )
+
+                    set_ram_memory_tracking_context(role="enginecore")
+                except Exception:
+                    pass
                 engine_core = EngineCoreProc(*args, **kwargs)
 
             engine_core.run_busy_loop()

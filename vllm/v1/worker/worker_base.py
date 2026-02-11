@@ -80,6 +80,21 @@ class WorkerBase:
         self.distributed_init_method = distributed_init_method
         self.is_driver_worker = is_driver_worker
 
+        # Tag RAM tracking logs with process/rank info (TP>1 creates multiple
+        # worker processes; this makes logs distinguishable in a shared stdout).
+        try:
+            from vllm.utils.ram_memory_tracker import set_ram_memory_tracking_context
+
+            set_ram_memory_tracking_context(
+                role="worker",
+                rank=rank,
+                local_rank=local_rank,
+                is_driver_worker=is_driver_worker,
+            )
+        except Exception:
+            # Never fail worker initialization due to logging/tracking.
+            pass
+
         # Device and model state
         self.device: torch.device | None = None
         self.model_runner: nn.Module | None = None
