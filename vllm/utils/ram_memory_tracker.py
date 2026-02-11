@@ -40,6 +40,9 @@ class RAMMemoryTracker:
         if self.enabled:
             gc.collect()
             self.baseline_memory_mb = self._get_current_memory_mb()
+            logger.info(
+                f"内存跟踪基线: {self.baseline_memory_mb:.2f} M RAM内存（第二次改动）"
+            )
             self.last_memory_mb = self.baseline_memory_mb
             self.peak_memory_mb = self.baseline_memory_mb
 
@@ -86,14 +89,21 @@ class RAMMemoryTracker:
             self.peak_memory_mb = current_memory_mb
 
         # Build log message
+        # 同时显示增量、累计增量和绝对RSS值，便于与top命令对比
         if note:
-            log_msg = f"{component_name} {note} 占用 %.2f M RAM内存 (累计: %.2f M)（第二次改动）"
+            log_msg = (
+                f"{component_name} {note} 占用 %.2f M RAM内存 "
+                f"(累计增量: %.2f M, 绝对RSS: %.2f M)（第二次改动）"
+            )
         else:
-            log_msg = f"{component_name} 占用 %.2f M RAM内存 (累计: %.2f M)（第二次改动）"
+            log_msg = (
+                f"{component_name} 占用 %.2f M RAM内存 "
+                f"(累计增量: %.2f M, 绝对RSS: %.2f M)（第二次改动）"
+            )
 
         # Log memory change
         # We log all changes, even small ones, to track memory dynamics
-        logger.info(log_msg, memory_delta_mb, total_memory_mb)
+        logger.info(log_msg, memory_delta_mb, total_memory_mb, current_memory_mb)
 
         # Store in history for analysis
         self.memory_history.append((component_name, memory_delta_mb, total_memory_mb))
