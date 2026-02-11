@@ -454,14 +454,13 @@ class GPUModelRunner(
                 self.is_pooling_model,
                 custom_logitsprocs,
             ),
-        )
-        log_ram_memory("GPUModelRunner:创建InputBatch之后")
-        # We currently don't know whether a particular custom logits processor
+            # We currently don't know whether a particular custom logits processor
             # uses output token ids so we set this conservatively.
             logitsprocs_need_output_token_ids=bool(custom_logitsprocs),
             is_pooling_model=self.is_pooling_model,
             cp_kv_cache_interleave_size=self.parallel_config.cp_kv_cache_interleave_size,
         )
+        log_ram_memory("GPUModelRunner:创建InputBatch之后")
 
         self.use_async_scheduling = self.scheduler_config.async_scheduling
         # Separate cuda stream for overlapping transfer of sampled token ids from

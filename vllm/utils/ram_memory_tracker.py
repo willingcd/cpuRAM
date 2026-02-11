@@ -87,9 +87,9 @@ class RAMMemoryTracker:
 
         # Build log message
         if note:
-            log_msg = f"{component_name} {note} 占用 %.2f M RAM内存 (累计: %.2f M)"
+            log_msg = f"{component_name} {note} 占用 %.2f M RAM内存 (累计: %.2f M)（第二次改动）"
         else:
-            log_msg = f"{component_name} 占用 %.2f M RAM内存 (累计: %.2f M)"
+            log_msg = f"{component_name} 占用 %.2f M RAM内存 (累计: %.2f M)（第二次改动）"
 
         # Log memory change
         # We log all changes, even small ones, to track memory dynamics
@@ -128,7 +128,7 @@ class RAMMemoryTracker:
 
         # If memory decreased, log the release
         if memory_delta_mb < 0:
-            release_msg = f"{component_name} 释放 %.2f M RAM内存 (累计: %.2f M)"
+            release_msg = f"{component_name} 释放 %.2f M RAM内存 (累计: %.2f M)（第二次改动）"
             if expected_release_mb and abs(memory_delta_mb) < expected_release_mb * 0.5:
                 # Memory might be reused, add a note
                 release_msg += f" [注意: 可能部分内存已被其他模块重用]"
@@ -137,7 +137,7 @@ class RAMMemoryTracker:
             # Memory didn't decrease - might be reused immediately
             logger.info(
                 "%s 尝试释放内存，但RSS未减少 (变化: %.2f M, 累计: %.2f M) "
-                "[可能原因: 内存被其他模块立即重用，或Python未立即释放]",
+                "[可能原因: 内存被其他模块立即重用，或Python未立即释放]（第二次改动）",
                 component_name,
                 memory_delta_mb,
                 total_memory_mb,
@@ -183,6 +183,41 @@ def log_ram_memory(
     """
     tracker = get_ram_memory_tracker()
     tracker.log_memory_usage(component_name, force_gc=force_gc, note=note)
+
+
+def log_ram_memory_from_cpp(component_name: str, size_bytes: int) -> None:
+    """
+    Log RAM memory usage from C++ code.
+    This function is designed to be called from C++ extensions.
+
+    Args:
+        component_name: Name of the component allocating memory
+        size_bytes: Size of memory allocated in bytes
+    """
+    tracker = get_ram_memory_tracker()
+    if not tracker.enabled:
+        return
+    
+    import gc
+    gc.collect()
+    
+    current_memory_mb = tracker._get_current_memory_mb()
+    memory_delta_mb = current_memory_mb - tracker.last_memory_mb
+    total_memory_mb = current_memory_mb - tracker.baseline_memory_mb
+    
+    # Update peak memory
+    if current_memory_mb > tracker.peak_memory_mb:
+        tracker.peak_memory_mb = current_memory_mb
+    
+    # Calculate expected memory increase from the allocation
+    expected_mb = size_bytes / (1024.0 * 1024.0)
+    
+    # Log with note about C++ allocation
+    log_msg = f"{component_name} 占用 {memory_delta_mb:.2f} M RAM内存 (累计: {total_memory_mb:.2f} M) [C++分配: {expected_mb:.2f} M]（第二次改动）"
+    logger.info(log_msg)
+    
+    tracker.memory_history.append((component_name, memory_delta_mb, total_memory_mb))
+    tracker.last_memory_mb = current_memory_mb
 
 
 def log_ram_memory_release(
