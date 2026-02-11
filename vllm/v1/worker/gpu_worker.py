@@ -173,8 +173,12 @@ class Worker(WorkerBase):
             return nullcontext()
 
     def initialize_cache(self, num_gpu_blocks: int, num_cpu_blocks: int) -> None:
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("Worker.initialize_cache之前")
         self.cache_config.num_gpu_blocks = num_gpu_blocks
         self.cache_config.num_cpu_blocks = num_cpu_blocks
+        log_ram_memory("Worker.initialize_cache之后")
 
     def init_device(self):
         device = self.device_config.device
@@ -257,10 +261,15 @@ class Worker(WorkerBase):
             raise RuntimeError(f"Not support device type: {self.device_config.device}")
 
         # Initialize workspace manager
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("初始化workspace_manager之前")
         num_ubatches = 2 if self.vllm_config.parallel_config.enable_dbo else 1
         init_workspace_manager(self.device, num_ubatches)
+        log_ram_memory("初始化workspace_manager之后")
 
         # Construct the model runner
+        log_ram_memory("创建ModelRunner之前")
         if self.use_v2_model_runner:
             from vllm.v1.worker.gpu.model_runner import (
                 GPUModelRunner as GPUModelRunnerV2,
@@ -276,6 +285,7 @@ class Worker(WorkerBase):
             )
 
             self.model_runner = GPUModelRunnerV1(self.vllm_config, self.device)
+        log_ram_memory("创建ModelRunner之后")
 
         if self.rank == 0:
             # If usage stat is enabled, collect relevant info.
@@ -284,9 +294,13 @@ class Worker(WorkerBase):
     # FIXME(youkaichao & ywang96): Use TorchDispatchMode instead of memory pool
     # to hijack tensor allocation.
     def load_model(self) -> None:
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("Worker.load_model之前")
         eep_scale_up = os.environ.get("VLLM_ELASTIC_EP_SCALE_UP_LAUNCH") == "1"
         with self._maybe_get_memory_pool_context(tag="weights"):
             self.model_runner.load_model(eep_scale_up=eep_scale_up)
+        log_ram_memory("Worker.load_model之后")
 
     def update_config(self, overrides: dict[str, Any]) -> None:
         self.model_runner.update_config(overrides)

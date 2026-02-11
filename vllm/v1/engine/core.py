@@ -85,8 +85,10 @@ class EngineCore:
     ):
         # plugins need to be loaded at the engine/scheduler level too
         from vllm.plugins import load_general_plugins
+        from vllm.utils.ram_memory_tracker import log_ram_memory
 
         load_general_plugins()
+        log_ram_memory("EngineCore初始化开始")
 
         self.vllm_config = vllm_config
         if vllm_config.parallel_config.data_parallel_rank == 0:
@@ -99,24 +101,39 @@ class EngineCore:
         self.log_stats = log_stats
 
         # Setup Model.
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("创建ModelExecutor之前")
         self.model_executor = executor_class(vllm_config)
+        log_ram_memory("创建ModelExecutor之后")
         if executor_fail_callback is not None:
             self.model_executor.register_failure_callback(executor_fail_callback)
 
         self.available_gpu_memory_for_kv_cache = -1
 
         # Setup KV Caches and update CacheConfig after profiling.
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("初始化KV Cache之前")
         num_gpu_blocks, num_cpu_blocks, kv_cache_config = self._initialize_kv_caches(
             vllm_config
         )
+        log_ram_memory("初始化KV Cache之后")
 
         vllm_config.cache_config.num_gpu_blocks = num_gpu_blocks
         vllm_config.cache_config.num_cpu_blocks = num_cpu_blocks
+        log_ram_memory("调用initialize_cache之前")
         self.collective_rpc("initialize_cache", args=(num_gpu_blocks, num_cpu_blocks))
+        log_ram_memory("调用initialize_cache之后")
 
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("创建StructuredOutputManager之前")
         self.structured_output_manager = StructuredOutputManager(vllm_config)
+        log_ram_memory("创建StructuredOutputManager之后")
 
         # Setup scheduler.
+        log_ram_memory("创建Scheduler之前")
         Scheduler = vllm_config.scheduler_config.get_scheduler_cls()
 
         if len(kv_cache_config.kv_cache_groups) == 0:  # noqa: SIM102
@@ -132,6 +149,8 @@ class EngineCore:
             * vllm_config.parallel_config.prefill_context_parallel_size
         )
 
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
         self.scheduler: SchedulerInterface = Scheduler(
             vllm_config=vllm_config,
             kv_cache_config=kv_cache_config,
@@ -140,6 +159,7 @@ class EngineCore:
             log_stats=self.log_stats,
             block_size=scheduler_block_size,
         )
+        log_ram_memory("创建Scheduler之后")
         self.use_spec_decode = vllm_config.speculative_config is not None
         if self.scheduler.connector is not None:  # type: ignore
             self.model_executor.init_kv_output_aggregator(self.scheduler.connector)  # type: ignore
@@ -218,10 +238,14 @@ class EngineCore:
     def _initialize_kv_caches(
         self, vllm_config: VllmConfig
     ) -> tuple[int, int, KVCacheConfig]:
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
         start = time.time()
 
         # Get all kv cache needed by the model
+        log_ram_memory("_initialize_kv_caches:获取kv_cache_specs之前")
         kv_cache_specs = self.model_executor.get_kv_cache_specs()
+        log_ram_memory("_initialize_kv_caches:获取kv_cache_specs之后")
 
         has_kv_cache = any(kv_cache_spec for kv_cache_spec in kv_cache_specs)
         if has_kv_cache:
@@ -237,7 +261,9 @@ class EngineCore:
             else:
                 # Profiles the peak memory usage of the model to determine how
                 # much memory can be allocated for kv cache.
+                log_ram_memory("_initialize_kv_caches:调用determine_available_memory之前")
                 available_gpu_memory = self.model_executor.determine_available_memory()
+                log_ram_memory("_initialize_kv_caches:调用determine_available_memory之后")
                 self.available_gpu_memory_for_kv_cache = available_gpu_memory[0]
         else:
             # Attention free models don't need memory for kv cache
@@ -245,15 +271,19 @@ class EngineCore:
 
         assert len(kv_cache_specs) == len(available_gpu_memory)
 
+        log_ram_memory("_initialize_kv_caches:调用get_kv_cache_configs之前")
         kv_cache_configs = get_kv_cache_configs(
             vllm_config, kv_cache_specs, available_gpu_memory
         )
+        log_ram_memory("_initialize_kv_caches:调用get_kv_cache_configs之后")
         scheduler_kv_cache_config = generate_scheduler_kv_cache_config(kv_cache_configs)
         num_gpu_blocks = scheduler_kv_cache_config.num_blocks
         num_cpu_blocks = 0
 
         # Initialize kv cache and warmup the execution
+        log_ram_memory("_initialize_kv_caches:调用initialize_from_config之前")
         self.model_executor.initialize_from_config(kv_cache_configs)
+        log_ram_memory("_initialize_kv_caches:调用initialize_from_config之后")
 
         elapsed = time.time() - start
         logger.info_once(

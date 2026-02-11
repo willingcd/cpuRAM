@@ -113,16 +113,22 @@ class InputBatch:
         # Find a way to reduce the CPU memory usage.
         # This buffer is not directly transferred to the GPU, so it does not
         # need to be pinned.
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("InputBatch:创建token_ids_cpu_tensor之前")
         self.token_ids_cpu_tensor = torch.zeros(
             (max_num_reqs, max_model_len),
             device="cpu",
             dtype=torch.int32,
             pin_memory=False,
         )
+        log_ram_memory("InputBatch:创建token_ids_cpu_tensor之后")
         self.token_ids_cpu = self.token_ids_cpu_tensor.numpy()
+        log_ram_memory("InputBatch:创建is_token_ids_tensor之前")
         self.is_token_ids_tensor = torch.zeros(
             (max_num_reqs, max_model_len), device="cpu", dtype=bool, pin_memory=False
         )
+        log_ram_memory("InputBatch:创建is_token_ids_tensor之后")
         self.is_token_ids = self.is_token_ids_tensor.numpy()
         # Store prompt embeddings per request to avoid OOM from large upfront
         # allocation if max_model_len is big.

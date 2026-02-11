@@ -314,16 +314,24 @@ class WorkerWrapperBase:
             assert self.worker is not None
 
     def initialize_from_config(self, kv_cache_configs: list[Any]) -> None:
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("WorkerWrapper.initialize_from_config之前")
         kv_cache_config = kv_cache_configs[self.global_rank]
         assert self.vllm_config is not None
         with set_current_vllm_config(self.vllm_config):
             self.worker.initialize_from_config(kv_cache_config)  # type: ignore
+        log_ram_memory("WorkerWrapper.initialize_from_config之后")
 
     def init_device(self):
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
         assert self.vllm_config is not None
+        log_ram_memory("WorkerWrapper.init_device之前")
         with set_current_vllm_config(self.vllm_config):
             # To make vLLM config available during device initialization
             self.worker.init_device()  # type: ignore
+        log_ram_memory("WorkerWrapper.init_device之后")
 
     def execute_method(self, method: str | bytes, *args, **kwargs):
         try:

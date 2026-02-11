@@ -274,6 +274,9 @@ class GPUModelRunner(
         vllm_config: VllmConfig,
         device: torch.device,
     ):
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("GPUModelRunner.__init__开始")
         self.vllm_config = vllm_config
         self.model_config = vllm_config.model_config
         self.cache_config = vllm_config.cache_config
@@ -425,6 +428,9 @@ class GPUModelRunner(
         # solution, we initialize the input batch here, and re-initialize it
         # in `initialize_kv_cache` if the block_sizes here is different from
         # the block_sizes in the kv cache config.
+        from vllm.utils.ram_memory_tracker import log_ram_memory
+
+        log_ram_memory("GPUModelRunner:创建InputBatch之前")
         logits_processors = model_config.logits_processors
         custom_logitsprocs: Sequence[str | type[LogitsProcessor]] = (
             tuple(logits_processors) if logits_processors is not None else ()
@@ -448,7 +454,9 @@ class GPUModelRunner(
                 self.is_pooling_model,
                 custom_logitsprocs,
             ),
-            # We currently don't know whether a particular custom logits processor
+        )
+        log_ram_memory("GPUModelRunner:创建InputBatch之后")
+        # We currently don't know whether a particular custom logits processor
             # uses output token ids so we set this conservatively.
             logitsprocs_need_output_token_ids=bool(custom_logitsprocs),
             is_pooling_model=self.is_pooling_model,
@@ -3575,12 +3583,19 @@ class GPUModelRunner(
             eplb_models = 0
 
         try:
+            from vllm.utils.ram_memory_tracker import log_ram_memory
+
+            log_ram_memory("ModelRunner.load_model:开始加载模型权重之前")
             with DeviceMemoryProfiler() as m:
                 time_before_load = time.perf_counter()
                 model_loader = get_model_loader(self.load_config)
+                log_ram_memory("ModelRunner.load_model:调用model_loader.load_model之前")
                 self.model = model_loader.load_model(
                     vllm_config=self.vllm_config, model_config=self.model_config
                 )
+                log_ram_memory("ModelRunner.load_model:调用model_loader.load_model之后")
+                # Note: If weights are moved to GPU, CPU memory may be released
+                # We'll check this after the model is fully loaded
                 if self.lora_config:
                     self.model = self.load_lora_model(
                         self.model, self.vllm_config, self.device
@@ -3706,6 +3721,27 @@ class GPUModelRunner(
             return
         # for other compilation modes, cudagraph behavior is controlled by
         # CudagraphWraper and CudagraphDispatcher of vllm.
+
+        # Check if weights are on GPU and log potential CPU memory release
+        from vllm.utils.ram_memory_tracker import log_ram_memory, log_ram_memory_release
+
+        # Check if model parameters are on GPU (indicating CPU memory may be released)
+        if hasattr(self, "model") and self.model is not None:
+            try:
+                # Sample a few parameters to check device
+                sample_params = list(self.model.parameters())[:5]
+                if sample_params:
+                    devices = {p.device.type for p in sample_params}
+                    if "cuda" in devices or "gpu" in devices:
+                        # Weights are on GPU, CPU memory may have been released
+                        log_ram_memory_release(
+                            "ModelRunner.load_model:权重转移到GPU后",
+                            expected_release_mb=None,  # We don't know exact amount
+                            force_gc=True
+                        )
+            except Exception:
+                # Ignore errors in memory tracking
+                pass
 
         # wrap the model with full cudagraph wrapper if needed.
         cudagraph_mode = self.compilation_config.cudagraph_mode
